@@ -27,19 +27,15 @@ def parse_args():
 
 def load_detector(weights, device):
     from transformers import AutoModelForObjectDetection, AutoImageProcessor
-    proc = AutoImageProcessor.from_pretrained(str(weights), trust_remote_code=True)
-    model = AutoModelForObjectDetection.from_pretrained(
-        str(weights), trust_remote_code=True).to(device).eval()
+    proc = AutoImageProcessor.from_pretrained(str(weights))
+    model = AutoModelForObjectDetection.from_pretrained(str(weights)).to(device).eval()
     return model, proc
 
 
 def load_segmenter(weights, device):
-    import torch
-    from transformers import AutoModel, AutoProcessor
-    proc = AutoProcessor.from_pretrained(str(weights), trust_remote_code=True)
-    model = AutoModel.from_pretrained(
-        str(weights), torch_dtype=torch.float16, trust_remote_code=True
-    ).to(device).eval()
+    from transformers import Sam3Model, Sam3Processor
+    proc = Sam3Processor.from_pretrained(str(weights))
+    model = Sam3Model.from_pretrained(str(weights)).to(device).eval()
     return model, proc
 
 
@@ -67,16 +63,26 @@ def segment(seg, frame, boxes, device):
     import torch
     model, proc = seg
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    inputs = proc(images=rgb, input_boxes=[[b.tolist() for b in boxes]],
-                  return_tensors="pt").to(device)
-    with torch.inference_mode():
-        out = model(**inputs, multimask_output=False)
-    masks = proc.post_process_masks(
-        out.pred_masks.cpu(),
-        inputs["original_sizes"].cpu(),
-        inputs["reshaped_input_sizes"].cpu(),
-    )[0]
-    return masks.squeeze(1).numpy().astype(bool)
+    masks_out = []
+    for box in boxes:
+        inputs = proc(
+            images=rgb,
+            input_boxes=[[box.tolist()]],
+            input_boxes_labels=[[1]],
+            return_tensors="pt",
+        ).to(device)
+        with torch.inference_mode():
+            out = model(**inputs)
+        results = proc.post_process_instance_segmentation(
+            out, threshold=0.5, mask_threshold=0.5,
+            target_sizes=inputs["original_sizes"].tolist(),
+        )[0]
+        if len(results["masks"]):
+            best = int(np.argmax(results["scores"].cpu().numpy()))
+            masks_out.append(results["masks"][best].cpu().numpy().astype(bool))
+        else:
+            masks_out.append(np.zeros((h, w), dtype=bool))
+    return np.stack(masks_out)
 
 
 def draw(frame, boxes, masks, scores, classes):
