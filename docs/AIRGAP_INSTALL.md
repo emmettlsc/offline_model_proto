@@ -74,9 +74,18 @@ is the wrong CUDA tag — rebuild the wheelhouse against `cu128` or newer.
 
 Put weights under `models/` (see `docs/MODEL_WEIGHTS.md`). Then:
 
-    python scripts/run_rfdetr_image.py \
-        --image data/test.jpg \
-        --weights models/rfdetr_weights.pth
+    python scripts/run_pytorch_pipeline.py \
+        --video data/clip.mp4 \
+        --rfdetr-weights models/rfdetr.pth \
+        --sam3-weights models/sam3/
+
+or the ONNX equivalent:
+
+    python scripts/run_onnx_pipeline.py \
+        --video data/clip.mp4 \
+        --rfdetr-onnx models/rfdetr.onnx \
+        --sam3-encoder-onnx models/sam3_encoder.onnx \
+        --sam3-decoder-onnx models/sam3_decoder.onnx
 
 ## Common failure modes
 

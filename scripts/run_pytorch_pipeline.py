@@ -1,13 +1,3 @@
-"""Run RF-DETR + SAM3 over a video using PyTorch weights. Bare pipeline.
-
-For each sampled frame: detect with RF-DETR, prompt SAM3 with each box,
-overlay masks and boxes, write the annotated frame to an output video.
-
-Adjust load_detector / load_segmenter if your weight files have a different
-loader signature than the defaults below.
-"""
-from __future__ import annotations
-
 import argparse
 import json
 import sys
@@ -18,231 +8,177 @@ import cv2
 import numpy as np
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="RF-DETR + SAM3 video pipeline (PyTorch)")
+def parse_args():
+    p = argparse.ArgumentParser()
     p.add_argument("--video", type=Path, required=True)
-    p.add_argument("--rfdetr-weights", type=Path, required=True,
-                   help="Path to RF-DETR checkpoint (.pth)")
-    p.add_argument("--sam3-weights", type=Path, required=True,
-                   help="Path to HF-format SAM3 weights directory (config.json + "
-                        "safetensors), or single checkpoint depending on your loader")
-    p.add_argument("--output", type=Path,
-                   default=REPO_ROOT / "outputs" / "pytorch_pipeline.mp4")
+    p.add_argument("--rfdetr-weights", type=Path, required=True)
+    p.add_argument("--sam3-weights", type=Path, required=True)
+    p.add_argument("--output", type=Path, default=ROOT / "outputs" / "pytorch_pipeline.mp4")
     p.add_argument("--device", default="cuda")
-    p.add_argument("--confidence-threshold", type=float, default=0.5)
-    p.add_argument("--frame-stride", type=int, default=1,
-                   help="Process every Nth frame (1 = every frame)")
-    p.add_argument("--max-frames", type=int, default=0,
-                   help="Stop after this many processed frames (0 = no limit)")
+    p.add_argument("--conf", type=float, default=0.5)
+    p.add_argument("--stride", type=int, default=1)
+    p.add_argument("--max-frames", type=int, default=0)
     return p.parse_args()
 
 
-# --- model loaders -----------------------------------------------------------
-
-def load_detector(weights: Path):
-    # ADJUST IF YOUR FORK DIFFERS: standard Roboflow rfdetr loader.
+def load_detector(weights):
     from rfdetr import RFDETRBase
     return RFDETRBase(pretrain_weights=str(weights))
 
 
-def load_segmenter(weights: Path, device: str):
-    # ADJUST IF YOUR WEIGHTS ARE NOT HF-FORMAT: for a .pt from Meta's native
-    # sam3 source repo, swap to that repo's build_sam3() + predictor instead.
+def load_segmenter(weights, device):
     import torch
     from transformers import AutoModel, AutoProcessor
-    processor = AutoProcessor.from_pretrained(str(weights))
-    model = AutoModel.from_pretrained(str(weights), torch_dtype=torch.float16)
-    model = model.to(device).eval()
-    return model, processor
+    proc = AutoProcessor.from_pretrained(str(weights))
+    model = AutoModel.from_pretrained(str(weights), torch_dtype=torch.float16).to(device).eval()
+    return model, proc
 
 
-# --- model runners -----------------------------------------------------------
-
-def detect(model, frame_bgr: np.ndarray, conf: float):
-    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    dets = model.predict(rgb, threshold=conf)  # supervision.Detections
-    boxes = np.asarray(dets.xyxy, dtype=np.float32)
-    scores = np.asarray(
-        getattr(dets, "confidence", np.ones(len(boxes))), dtype=np.float32
+def detect(model, frame, conf):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    d = model.predict(rgb, threshold=conf)
+    n = len(d.xyxy)
+    return (
+        np.asarray(d.xyxy, dtype=np.float32),
+        np.asarray(getattr(d, "confidence", np.ones(n)), dtype=np.float32),
+        np.asarray(getattr(d, "class_id", np.zeros(n)), dtype=int),
     )
-    class_ids = np.asarray(
-        getattr(dets, "class_id", np.zeros(len(boxes))), dtype=int
-    )
-    return boxes, scores, class_ids
 
 
-def segment(seg, frame_bgr: np.ndarray, boxes_xyxy: np.ndarray, device: str) -> np.ndarray:
-    h, w = frame_bgr.shape[:2]
-    if len(boxes_xyxy) == 0:
+def segment(seg, frame, boxes, device):
+    h, w = frame.shape[:2]
+    if len(boxes) == 0:
         return np.zeros((0, h, w), dtype=bool)
     import torch
-    model, processor = seg
-    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    # HF SAM-family processors expect input_boxes shape (batch, n_boxes, 4) in xyxy.
-    input_boxes = [[b.tolist() for b in boxes_xyxy]]
-    inputs = processor(images=rgb, input_boxes=input_boxes,
-                       return_tensors="pt").to(device)
+    model, proc = seg
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    inputs = proc(images=rgb, input_boxes=[[b.tolist() for b in boxes]],
+                  return_tensors="pt").to(device)
     with torch.inference_mode():
-        outputs = model(**inputs, multimask_output=False)
-    masks = processor.post_process_masks(
-        outputs.pred_masks.cpu(),
+        out = model(**inputs, multimask_output=False)
+    masks = proc.post_process_masks(
+        out.pred_masks.cpu(),
         inputs["original_sizes"].cpu(),
         inputs["reshaped_input_sizes"].cpu(),
-    )[0]  # batch=1 → first (and only) entry
-    return masks.squeeze(1).numpy().astype(bool)  # (n_boxes, H, W)
+    )[0]
+    return masks.squeeze(1).numpy().astype(bool)
 
 
-# --- visualization & results ------------------------------------------------
-
-def overlay(frame_bgr: np.ndarray, boxes: np.ndarray, masks: np.ndarray,
-            scores: np.ndarray, class_ids: np.ndarray) -> np.ndarray:
-    out = frame_bgr.copy()
-    color = np.array([0, 255, 0], dtype=np.uint8)
+def draw(frame, boxes, masks, scores, classes):
+    out = frame.copy()
+    green = np.array([0, 255, 0], dtype=np.uint8)
     for m in masks:
-        blend = (out * 0.5 + color * 0.5).astype(np.uint8)
+        blend = (out * 0.5 + green * 0.5).astype(np.uint8)
         out = np.where(m[..., None], blend, out)
-    for (x1, y1, x2, y2), s, c in zip(boxes.astype(int), scores, class_ids):
+    for (x1, y1, x2, y2), s, c in zip(boxes.astype(int), scores, classes):
         cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 255), 2)
         cv2.putText(out, f"{int(c)}:{s:.2f}", (x1, max(0, y1 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
     return out
 
 
-def mask_summary(mask: np.ndarray):
-    """Return (area_px, bbox_xyxy) for a boolean mask. Compact, verifiable."""
-    if mask.size == 0 or not mask.any():
+def mask_stats(m):
+    if not m.any():
         return 0, [0, 0, 0, 0]
-    ys, xs = np.where(mask)
-    return int(mask.sum()), [int(xs.min()), int(ys.min()),
-                             int(xs.max()), int(ys.max())]
+    ys, xs = np.where(m)
+    return int(m.sum()), [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
 
 
-# --- main loop ---------------------------------------------------------------
-
-def main() -> int:
+def main():
     args = parse_args()
-    for path in (args.video, args.rfdetr_weights, args.sam3_weights):
-        if not path.exists():
-            print(f"ERROR: not found: {path}", file=sys.stderr)
-            return 2
+    for p in (args.video, args.rfdetr_weights, args.sam3_weights):
+        if not p.exists():
+            sys.exit(f"not found: {p}")
 
     cap = cv2.VideoCapture(str(args.video))
     if not cap.isOpened():
-        print(f"ERROR: cannot open video: {args.video}", file=sys.stderr)
-        return 3
+        sys.exit(f"cannot open {args.video}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(
-        str(args.output),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps / max(1, args.frame_stride),
-        (w, h),
-    )
+    writer = cv2.VideoWriter(str(args.output), cv2.VideoWriter_fourcc(*"mp4v"),
+                             fps / max(1, args.stride), (w, h))
 
-    print("loading models ...")
+    print("loading models")
     detector = load_detector(args.rfdetr_weights)
     segmenter = load_segmenter(args.sam3_weights, args.device)
-    print("running ...")
 
-    frame_records: list[dict] = []
-    detect_seconds = 0.0
-    segment_seconds = 0.0
-    frame_idx = 0
-    processed = 0
-    total_detections = 0
+    frames = []
+    t_det = t_seg = 0.0
+    n = total = 0
     limit = args.max_frames or None
-    run_started = time.perf_counter()
+    start = time.perf_counter()
+    i = 0
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            if frame_idx % args.frame_stride == 0:
+            if i % args.stride == 0:
                 t0 = time.perf_counter()
-                boxes, scores, class_ids = detect(
-                    detector, frame, args.confidence_threshold)
+                boxes, scores, classes = detect(detector, frame, args.conf)
                 t1 = time.perf_counter()
                 masks = segment(segmenter, frame, boxes, args.device)
                 t2 = time.perf_counter()
-                detect_seconds += (t1 - t0)
-                segment_seconds += (t2 - t1)
+                t_det += t1 - t0
+                t_seg += t2 - t1
 
-                writer.write(overlay(frame, boxes, masks, scores, class_ids))
+                writer.write(draw(frame, boxes, masks, scores, classes))
 
                 dets = []
-                for i, (box, score, cls) in enumerate(zip(boxes, scores, class_ids)):
-                    mask = masks[i] if i < len(masks) else np.zeros(frame.shape[:2], bool)
-                    area, mbbox = mask_summary(mask)
+                for j, (b, s, c) in enumerate(zip(boxes, scores, classes)):
+                    m = masks[j] if j < len(masks) else np.zeros(frame.shape[:2], bool)
+                    area, bbox = mask_stats(m)
                     dets.append({
-                        "box_xyxy": [float(v) for v in box],
-                        "score": float(score),
-                        "class_id": int(cls),
+                        "box_xyxy": [float(v) for v in b],
+                        "score": float(s),
+                        "class_id": int(c),
                         "mask_area_px": area,
-                        "mask_bbox_xyxy": mbbox,
+                        "mask_bbox_xyxy": bbox,
                     })
-                frame_records.append({
-                    "video_frame_index": frame_idx,
-                    "detections": dets,
-                })
-                total_detections += len(dets)
-
-                processed += 1
-                if processed % 20 == 0:
-                    print(f"  processed {processed} frames")
-                if limit and processed >= limit:
+                frames.append({"video_frame_index": i, "detections": dets})
+                total += len(dets)
+                n += 1
+                if n % 20 == 0:
+                    print(f"  {n} frames")
+                if limit and n >= limit:
                     break
-            frame_idx += 1
+            i += 1
     finally:
         cap.release()
         writer.release()
 
-    elapsed = time.perf_counter() - run_started
-
-    sidecar = {
+    elapsed = time.perf_counter() - start
+    sidecar = args.output.with_name(args.output.stem + "_detections.json")
+    sidecar.write_text(json.dumps({
         "schema": "offline_model_proto.detections.v1",
         "backend": "pytorch",
-        "video": {
-            "path": str(args.video),
-            "fps": float(fps),
-            "width": w,
-            "height": h,
-        },
-        "models": {
-            "detector": str(args.rfdetr_weights),
-            "segmenter": str(args.sam3_weights),
-        },
-        "params": {
-            "confidence_threshold": args.confidence_threshold,
-            "frame_stride": args.frame_stride,
-            "max_frames": args.max_frames,
-            "device": args.device,
-        },
+        "video": {"path": str(args.video), "fps": float(fps), "width": w, "height": h},
+        "models": {"detector": str(args.rfdetr_weights), "segmenter": str(args.sam3_weights)},
+        "params": {"conf": args.conf, "stride": args.stride,
+                   "max_frames": args.max_frames, "device": args.device},
         "summary": {
-            "frames_processed": processed,
-            "total_detections": total_detections,
+            "frames_processed": n,
+            "total_detections": total,
             "elapsed_seconds": round(elapsed, 3),
-            "detect_seconds_total": round(detect_seconds, 3),
-            "segment_seconds_total": round(segment_seconds, 3),
-            "throughput_fps": round(processed / elapsed, 3) if elapsed > 0 else None,
+            "detect_seconds_total": round(t_det, 3),
+            "segment_seconds_total": round(t_seg, 3),
+            "throughput_fps": round(n / elapsed, 3) if elapsed else None,
         },
-        "frames": frame_records,
-    }
-    sidecar_path = args.output.with_name(args.output.stem + "_detections.json")
-    sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+        "frames": frames,
+    }, indent=2))
 
-    print(f"OK: wrote {args.output} ({processed} frames, {total_detections} detections)")
-    print(f"    sidecar: {sidecar_path}")
-    if elapsed > 0:
-        print(f"    timing : detect={detect_seconds:.2f}s segment={segment_seconds:.2f}s "
-              f"total={elapsed:.2f}s ({processed / elapsed:.2f} fps)")
-    return 0
+    print(f"wrote {args.output} ({n} frames, {total} dets)")
+    print(f"sidecar {sidecar}")
+    if elapsed:
+        print(f"detect {t_det:.2f}s segment {t_seg:.2f}s "
+              f"total {elapsed:.2f}s ({n / elapsed:.2f} fps)")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
