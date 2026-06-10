@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg
+
+# Wheelhouse and offline bundle — never commit
+wheelhouse/
+*.whl
+offline_model_proto_bundle.tar.gz
+
+# Model weights — never commit
+models/
+*.pth
+*.pt
+*.onnx
+*.safetensors
+*.ckpt
+*.bin
+
+# Videos and large media — never commit
+data/
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Outputs
+outputs/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/

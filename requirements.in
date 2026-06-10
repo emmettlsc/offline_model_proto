@@ -1,0 +1,30 @@
+# Core scientific stack
+numpy
+pillow
+pyyaml
+matplotlib
+
+# Computer vision
+# Use opencv-python-headless instead on servers without GUI/X libs.
+opencv-python
+
+# Deep learning
+# NOTE: On Linux/CUDA targets you will likely want a CUDA-specific build of
+# torch/torchvision pulled from the PyTorch index URL. See
+# docs/LINUX_WHEELHOUSE_BUILD.md.
+torch
+torchvision
+
+# Detection / segmentation helpers (Roboflow)
+supervision
+
+# RF-DETR — Roboflow publishes `rfdetr` on PyPI.
+# If the wheel is not resolvable on the target Python/Linux/CUDA combo, vendor
+# the wheel or source manually. See docs/MODEL_WEIGHTS.md.
+rfdetr
+
+# SAM (Segment Anything) — Meta's `segment-anything` is distributed via GitHub
+# source, not as an official PyPI package. Intentionally NOT listed here.
+# If you need SAM, install from a vendored source archive or vendored wheel.
+# See docs/MODEL_WEIGHTS.md.
+# segment-anything
