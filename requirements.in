@@ -1,37 +1,19 @@
-# Core scientific stack
 numpy
 pillow
 pyyaml
-matplotlib
-
-# Computer vision
-# Use opencv-python-headless instead on servers without GUI/X libs.
 opencv-python
 
-# Deep learning
-# NOTE: On Linux/CUDA targets you will likely want a CUDA-specific build of
-# torch/torchvision pulled from the PyTorch index URL. See
-# docs/LINUX_WHEELHOUSE_BUILD.md.
+# CUDA torch wheels come from the PyTorch index URL on the build host,
+# not from PyPI. See docs/LINUX_WHEELHOUSE_BUILD.md.
 torch
 torchvision
 
-# Detection / segmentation helpers (Roboflow)
-supervision
-
-# RF-DETR — Roboflow publishes `rfdetr` on PyPI.
-# If the wheel is not resolvable on the target Python/Linux/CUDA combo, vendor
-# the wheel or source manually. See docs/MODEL_WEIGHTS.md.
-rfdetr
-
-# SAM3 — the PyTorch pipeline loads SAM3 via Hugging Face transformers
-# (AutoModel + AutoProcessor) from a downloaded HF weights directory.
-# If you instead use Meta's native `sam3` source package, drop transformers
-# and import that directly in scripts/run_pytorch_pipeline.py.
+# Both RF-DETR and SAM3 are loaded via HF transformers AutoModel / AutoProcessor
+# from downloaded HF weights directories (config.json + model.safetensors).
 transformers
 
 # ONNX runtime for scripts/run_onnx_pipeline.py.
 # On the air-gapped GPU target use onnxruntime-gpu (CUDA-enabled).
 # For Blackwell sm_120 you need ORT >= 1.20 built against CUDA 12.x.
-# On a CPU-only dev Mac, `pip install onnxruntime` instead — the two packages
-# conflict, so don't have both installed in the same env.
+# On a CPU-only dev Mac use `onnxruntime` instead — the two packages conflict.
 onnxruntime-gpu

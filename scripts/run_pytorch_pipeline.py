@@ -24,9 +24,11 @@ def parse_args():
     return p.parse_args()
 
 
-def load_detector(weights):
-    from rfdetr import RFDETRBase
-    return RFDETRBase(pretrain_weights=str(weights))
+def load_detector(weights, device):
+    from transformers import AutoModelForObjectDetection, AutoImageProcessor
+    proc = AutoImageProcessor.from_pretrained(str(weights))
+    model = AutoModelForObjectDetection.from_pretrained(str(weights)).to(device).eval()
+    return model, proc
 
 
 def load_segmenter(weights, device):
@@ -37,14 +39,20 @@ def load_segmenter(weights, device):
     return model, proc
 
 
-def detect(model, frame, conf):
+def detect(det, frame, conf, device):
+    import torch
+    model, proc = det
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    d = model.predict(rgb, threshold=conf)
-    n = len(d.xyxy)
+    h, w = frame.shape[:2]
+    inputs = proc(images=rgb, return_tensors="pt").to(device)
+    with torch.inference_mode():
+        out = model(**inputs)
+    results = proc.post_process_object_detection(
+        out, threshold=conf, target_sizes=torch.tensor([[h, w]]))[0]
     return (
-        np.asarray(d.xyxy, dtype=np.float32),
-        np.asarray(getattr(d, "confidence", np.ones(n)), dtype=np.float32),
-        np.asarray(getattr(d, "class_id", np.zeros(n)), dtype=int),
+        results["boxes"].cpu().numpy().astype(np.float32),
+        results["scores"].cpu().numpy().astype(np.float32),
+        results["labels"].cpu().numpy().astype(int),
     )
 
 
@@ -105,7 +113,7 @@ def main():
                              fps / max(1, args.stride), (w, h))
 
     print("loading models")
-    detector = load_detector(args.rfdetr_weights)
+    detector = load_detector(args.rfdetr_weights, args.device)
     segmenter = load_segmenter(args.sam3_weights, args.device)
 
     frames = []
@@ -121,7 +129,7 @@ def main():
                 break
             if i % args.stride == 0:
                 t0 = time.perf_counter()
-                boxes, scores, classes = detect(detector, frame, args.conf)
+                boxes, scores, classes = detect(detector, frame, args.conf, args.device)
                 t1 = time.perf_counter()
                 masks = segment(segmenter, frame, boxes, args.device)
                 t2 = time.perf_counter()

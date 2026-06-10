@@ -76,7 +76,7 @@ Put weights under `models/` (see `docs/MODEL_WEIGHTS.md`). Then:
 
     python scripts/run_pytorch_pipeline.py \
         --video data/clip.mp4 \
-        --rfdetr-weights models/rfdetr.pth \
+        --rfdetr-weights models/rfdetr/ \
         --sam3-weights models/sam3/
 
 or the ONNX equivalent:

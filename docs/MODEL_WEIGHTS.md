@@ -17,7 +17,7 @@ Scripts take weight paths as explicit arguments. Example:
 
     python scripts/run_pytorch_pipeline.py \
         --video data/clip.mp4 \
-        --rfdetr-weights models/rfdetr.pth \
+        --rfdetr-weights models/rfdetr/ \
         --sam3-weights models/sam3/
 
     python scripts/run_onnx_pipeline.py \
@@ -25,6 +25,11 @@ Scripts take weight paths as explicit arguments. Example:
         --rfdetr-onnx models/rfdetr.onnx \
         --sam3-encoder-onnx models/sam3_encoder.onnx \
         --sam3-decoder-onnx models/sam3_decoder.onnx
+
+The PyTorch RF-DETR weights from HF are a directory containing
+`config.json`, `model.safetensors`, and `preprocessor_config.json`. Pass the
+directory path, not a single file — `AutoImageProcessor.from_pretrained`
+and `AutoModelForObjectDetection.from_pretrained` both read from the dir.
 
 ## Air-gapped constraints
 
@@ -57,11 +62,10 @@ Stage these alongside `models/` and bundle them into
 
 ## RF-DETR specifics
 
-RF-DETR is published by Roboflow as the `rfdetr` PyPI package. Confirm that
-the wheelhouse contains the `rfdetr` wheel and its dependencies before the
-offline install. If the package fails to resolve, vendor the upstream source
-as a sibling directory and `pip install -e ./rfdetr_src`, or build a wheel on
-the connected host with `pip wheel ./rfdetr_src -w wheelhouse/`.
+The PyTorch pipeline loads RF-DETR via Hugging Face transformers
+(`AutoModelForObjectDetection` + `AutoImageProcessor`) from the downloaded
+HF weights directory. No `rfdetr` PyPI package is required — `transformers`
+is the only Python dependency for detection.
 
 ## SAM specifics
 
