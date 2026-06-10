@@ -9,7 +9,9 @@ loader signature than the defaults below.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -63,10 +65,13 @@ def detect(model, frame_bgr: np.ndarray, conf: float):
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     dets = model.predict(rgb, threshold=conf)  # supervision.Detections
     boxes = np.asarray(dets.xyxy, dtype=np.float32)
+    scores = np.asarray(
+        getattr(dets, "confidence", np.ones(len(boxes))), dtype=np.float32
+    )
     class_ids = np.asarray(
         getattr(dets, "class_id", np.zeros(len(boxes))), dtype=int
     )
-    return boxes, class_ids
+    return boxes, scores, class_ids
 
 
 def segment(seg, frame_bgr: np.ndarray, boxes_xyxy: np.ndarray, device: str) -> np.ndarray:
@@ -90,20 +95,29 @@ def segment(seg, frame_bgr: np.ndarray, boxes_xyxy: np.ndarray, device: str) -> 
     return masks.squeeze(1).numpy().astype(bool)  # (n_boxes, H, W)
 
 
-# --- visualization -----------------------------------------------------------
+# --- visualization & results ------------------------------------------------
 
 def overlay(frame_bgr: np.ndarray, boxes: np.ndarray, masks: np.ndarray,
-            class_ids: np.ndarray) -> np.ndarray:
+            scores: np.ndarray, class_ids: np.ndarray) -> np.ndarray:
     out = frame_bgr.copy()
     color = np.array([0, 255, 0], dtype=np.uint8)
     for m in masks:
         blend = (out * 0.5 + color * 0.5).astype(np.uint8)
         out = np.where(m[..., None], blend, out)
-    for (x1, y1, x2, y2), c in zip(boxes.astype(int), class_ids):
+    for (x1, y1, x2, y2), s, c in zip(boxes.astype(int), scores, class_ids):
         cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 255), 2)
-        cv2.putText(out, str(int(c)), (x1, max(0, y1 - 6)),
+        cv2.putText(out, f"{int(c)}:{s:.2f}", (x1, max(0, y1 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
     return out
+
+
+def mask_summary(mask: np.ndarray):
+    """Return (area_px, bbox_xyxy) for a boolean mask. Compact, verifiable."""
+    if mask.size == 0 or not mask.any():
+        return 0, [0, 0, 0, 0]
+    ys, xs = np.where(mask)
+    return int(mask.sum()), [int(xs.min()), int(ys.min()),
+                             int(xs.max()), int(ys.max())]
 
 
 # --- main loop ---------------------------------------------------------------
@@ -136,18 +150,48 @@ def main() -> int:
     segmenter = load_segmenter(args.sam3_weights, args.device)
     print("running ...")
 
+    frame_records: list[dict] = []
+    detect_seconds = 0.0
+    segment_seconds = 0.0
     frame_idx = 0
     processed = 0
+    total_detections = 0
     limit = args.max_frames or None
+    run_started = time.perf_counter()
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
             if frame_idx % args.frame_stride == 0:
-                boxes, class_ids = detect(detector, frame, args.confidence_threshold)
+                t0 = time.perf_counter()
+                boxes, scores, class_ids = detect(
+                    detector, frame, args.confidence_threshold)
+                t1 = time.perf_counter()
                 masks = segment(segmenter, frame, boxes, args.device)
-                writer.write(overlay(frame, boxes, masks, class_ids))
+                t2 = time.perf_counter()
+                detect_seconds += (t1 - t0)
+                segment_seconds += (t2 - t1)
+
+                writer.write(overlay(frame, boxes, masks, scores, class_ids))
+
+                dets = []
+                for i, (box, score, cls) in enumerate(zip(boxes, scores, class_ids)):
+                    mask = masks[i] if i < len(masks) else np.zeros(frame.shape[:2], bool)
+                    area, mbbox = mask_summary(mask)
+                    dets.append({
+                        "box_xyxy": [float(v) for v in box],
+                        "score": float(score),
+                        "class_id": int(cls),
+                        "mask_area_px": area,
+                        "mask_bbox_xyxy": mbbox,
+                    })
+                frame_records.append({
+                    "video_frame_index": frame_idx,
+                    "detections": dets,
+                })
+                total_detections += len(dets)
+
                 processed += 1
                 if processed % 20 == 0:
                     print(f"  processed {processed} frames")
@@ -158,7 +202,45 @@ def main() -> int:
         cap.release()
         writer.release()
 
-    print(f"OK: wrote {args.output} ({processed} frames)")
+    elapsed = time.perf_counter() - run_started
+
+    sidecar = {
+        "schema": "offline_model_proto.detections.v1",
+        "backend": "pytorch",
+        "video": {
+            "path": str(args.video),
+            "fps": float(fps),
+            "width": w,
+            "height": h,
+        },
+        "models": {
+            "detector": str(args.rfdetr_weights),
+            "segmenter": str(args.sam3_weights),
+        },
+        "params": {
+            "confidence_threshold": args.confidence_threshold,
+            "frame_stride": args.frame_stride,
+            "max_frames": args.max_frames,
+            "device": args.device,
+        },
+        "summary": {
+            "frames_processed": processed,
+            "total_detections": total_detections,
+            "elapsed_seconds": round(elapsed, 3),
+            "detect_seconds_total": round(detect_seconds, 3),
+            "segment_seconds_total": round(segment_seconds, 3),
+            "throughput_fps": round(processed / elapsed, 3) if elapsed > 0 else None,
+        },
+        "frames": frame_records,
+    }
+    sidecar_path = args.output.with_name(args.output.stem + "_detections.json")
+    sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+
+    print(f"OK: wrote {args.output} ({processed} frames, {total_detections} detections)")
+    print(f"    sidecar: {sidecar_path}")
+    if elapsed > 0:
+        print(f"    timing : detect={detect_seconds:.2f}s segment={segment_seconds:.2f}s "
+              f"total={elapsed:.2f}s ({processed / elapsed:.2f} fps)")
     return 0
 
 
