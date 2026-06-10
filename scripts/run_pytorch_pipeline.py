@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--video", type=Path, required=True)
-    p.add_argument("--rfdetr-weights", type=Path, required=True)
+    p.add_argument("--rfdetr-weights", type=Path, default=None,
+                   help="HF weights dir. Omit to skip detection and prompt SAM3 with the whole frame.")
     p.add_argument("--sam3-weights", type=Path, required=True)
     p.add_argument("--output", type=Path, default=ROOT / "outputs" / "pytorch_pipeline.mp4")
     p.add_argument("--device", default="cuda")
@@ -26,16 +27,19 @@ def parse_args():
 
 def load_detector(weights, device):
     from transformers import AutoModelForObjectDetection, AutoImageProcessor
-    proc = AutoImageProcessor.from_pretrained(str(weights))
-    model = AutoModelForObjectDetection.from_pretrained(str(weights)).to(device).eval()
+    proc = AutoImageProcessor.from_pretrained(str(weights), trust_remote_code=True)
+    model = AutoModelForObjectDetection.from_pretrained(
+        str(weights), trust_remote_code=True).to(device).eval()
     return model, proc
 
 
 def load_segmenter(weights, device):
     import torch
     from transformers import AutoModel, AutoProcessor
-    proc = AutoProcessor.from_pretrained(str(weights))
-    model = AutoModel.from_pretrained(str(weights), torch_dtype=torch.float16).to(device).eval()
+    proc = AutoProcessor.from_pretrained(str(weights), trust_remote_code=True)
+    model = AutoModel.from_pretrained(
+        str(weights), torch_dtype=torch.float16, trust_remote_code=True
+    ).to(device).eval()
     return model, proc
 
 
@@ -97,7 +101,10 @@ def mask_stats(m):
 
 def main():
     args = parse_args()
-    for p in (args.video, args.rfdetr_weights, args.sam3_weights):
+    must_exist = [args.video, args.sam3_weights]
+    if args.rfdetr_weights is not None:
+        must_exist.append(args.rfdetr_weights)
+    for p in must_exist:
         if not p.exists():
             sys.exit(f"not found: {p}")
 
@@ -113,8 +120,10 @@ def main():
                              fps / max(1, args.stride), (w, h))
 
     print("loading models")
-    detector = load_detector(args.rfdetr_weights, args.device)
+    detector = load_detector(args.rfdetr_weights, args.device) if args.rfdetr_weights else None
     segmenter = load_segmenter(args.sam3_weights, args.device)
+    if detector is None:
+        print("no detector — prompting SAM3 with the whole frame per sampled frame")
 
     frames = []
     t_det = t_seg = 0.0
@@ -129,7 +138,13 @@ def main():
                 break
             if i % args.stride == 0:
                 t0 = time.perf_counter()
-                boxes, scores, classes = detect(detector, frame, args.conf, args.device)
+                if detector is not None:
+                    boxes, scores, classes = detect(detector, frame, args.conf, args.device)
+                else:
+                    fh, fw = frame.shape[:2]
+                    boxes = np.array([[0, 0, fw, fh]], dtype=np.float32)
+                    scores = np.array([1.0], dtype=np.float32)
+                    classes = np.array([0], dtype=int)
                 t1 = time.perf_counter()
                 masks = segment(segmenter, frame, boxes, args.device)
                 t2 = time.perf_counter()
@@ -167,7 +182,10 @@ def main():
         "schema": "offline_model_proto.detections.v1",
         "backend": "pytorch",
         "video": {"path": str(args.video), "fps": float(fps), "width": w, "height": h},
-        "models": {"detector": str(args.rfdetr_weights), "segmenter": str(args.sam3_weights)},
+        "models": {
+            "detector": str(args.rfdetr_weights) if args.rfdetr_weights else None,
+            "segmenter": str(args.sam3_weights),
+        },
         "params": {"conf": args.conf, "stride": args.stride,
                    "max_frames": args.max_frames, "device": args.device},
         "summary": {
