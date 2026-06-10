@@ -4,4 +4,4 @@ transformers>=4.40
 safetensors
 onnx>=1.15
 onnxscript
-onnxruntime>=1.17
+onnxruntime>=1.16
