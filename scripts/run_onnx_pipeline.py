@@ -21,8 +21,8 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--video", type=Path, required=True)
     p.add_argument("--rfdetr-onnx", type=Path, required=True)
-    p.add_argument("--sam3-encoder-onnx", type=Path, required=True)
-    p.add_argument("--sam3-decoder-onnx", type=Path, required=True)
+    p.add_argument("--sam2-encoder-onnx", type=Path, required=True)
+    p.add_argument("--sam2-decoder-onnx", type=Path, required=True)
     p.add_argument("--output", type=Path, default=ROOT / "outputs" / "onnx_pipeline.mp4")
     p.add_argument("--providers", nargs="+",
                    default=["CUDAExecutionProvider", "CPUExecutionProvider"])
@@ -120,7 +120,7 @@ def mask_stats(m):
 
 def main():
     args = parse_args()
-    for p in (args.video, args.rfdetr_onnx, args.sam3_encoder_onnx, args.sam3_decoder_onnx):
+    for p in (args.video, args.rfdetr_onnx, args.sam2_encoder_onnx, args.sam2_decoder_onnx):
         if not p.exists():
             sys.exit(f"not found: {p}")
 
@@ -137,8 +137,8 @@ def main():
 
     print("loading models")
     det = session(args.rfdetr_onnx, args.providers)
-    enc = session(args.sam3_encoder_onnx, args.providers)
-    dec = session(args.sam3_decoder_onnx, args.providers)
+    enc = session(args.sam2_encoder_onnx, args.providers)
+    dec = session(args.sam2_decoder_onnx, args.providers)
 
     frames = []
     t_det = t_seg = 0.0
@@ -193,8 +193,8 @@ def main():
         "video": {"path": str(args.video), "fps": float(fps), "width": w, "height": h},
         "models": {
             "detector": str(args.rfdetr_onnx),
-            "segmenter_encoder": str(args.sam3_encoder_onnx),
-            "segmenter_decoder": str(args.sam3_decoder_onnx),
+            "segmenter_encoder": str(args.sam2_encoder_onnx),
+            "segmenter_decoder": str(args.sam2_decoder_onnx),
         },
         "params": {"conf": args.conf, "stride": args.stride,
                    "max_frames": args.max_frames, "providers": args.providers},

@@ -8,7 +8,7 @@ opencv-python
 torch
 torchvision
 
-# Both RF-DETR and SAM3 are loaded via HF transformers AutoModel / AutoProcessor
+# Both RF-DETR and SAM2 are loaded via HF transformers AutoModel / AutoProcessor
 # from downloaded HF weights directories (config.json + model.safetensors).
 transformers
 

@@ -77,15 +77,15 @@ Put weights under `models/` (see `docs/MODEL_WEIGHTS.md`). Then:
     python scripts/run_pytorch_pipeline.py \
         --video data/clip.mp4 \
         --rfdetr-weights models/rfdetr/ \
-        --sam3-weights models/sam3/
+        --sam2-weights models/sam2/
 
 or the ONNX equivalent:
 
     python scripts/run_onnx_pipeline.py \
         --video data/clip.mp4 \
         --rfdetr-onnx models/rfdetr.onnx \
-        --sam3-encoder-onnx models/sam3_encoder.onnx \
-        --sam3-decoder-onnx models/sam3_decoder.onnx
+        --sam2-encoder-onnx models/sam2_encoder.onnx \
+        --sam2-decoder-onnx models/sam2_decoder.onnx
 
 ## Common failure modes
 

@@ -15,8 +15,8 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--video", type=Path, required=True)
     p.add_argument("--rfdetr-weights", type=Path, default=None,
-                   help="HF weights dir. Omit to skip detection and prompt SAM3 with the whole frame.")
-    p.add_argument("--sam3-weights", type=Path, required=True)
+                   help="HF weights dir. Omit to skip detection and prompt SAM2 with the whole frame.")
+    p.add_argument("--sam2-weights", type=Path, required=True)
     p.add_argument("--output", type=Path, default=ROOT / "outputs" / "pytorch_pipeline.mp4")
     p.add_argument("--device", default="cuda")
     p.add_argument("--conf", type=float, default=0.5)
@@ -33,9 +33,9 @@ def load_detector(weights, device):
 
 
 def load_segmenter(weights, device):
-    from transformers import Sam3Model, Sam3Processor
-    proc = Sam3Processor.from_pretrained(str(weights))
-    model = Sam3Model.from_pretrained(str(weights)).to(device).eval()
+    from transformers import Sam2Model, Sam2Processor
+    proc = Sam2Processor.from_pretrained(str(weights))
+    model = Sam2Model.from_pretrained(str(weights)).to(device).eval()
     return model, proc
 
 
@@ -63,26 +63,16 @@ def segment(seg, frame, boxes, device):
     import torch
     model, proc = seg
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    masks_out = []
-    for box in boxes:
-        inputs = proc(
-            images=rgb,
-            input_boxes=[[box.tolist()]],
-            input_boxes_labels=[[1]],
-            return_tensors="pt",
-        ).to(device)
-        with torch.inference_mode():
-            out = model(**inputs)
-        results = proc.post_process_instance_segmentation(
-            out, threshold=0.5, mask_threshold=0.5,
-            target_sizes=inputs["original_sizes"].tolist(),
-        )[0]
-        if len(results["masks"]):
-            best = int(np.argmax(results["scores"].cpu().numpy()))
-            masks_out.append(results["masks"][best].cpu().numpy().astype(bool))
-        else:
-            masks_out.append(np.zeros((h, w), dtype=bool))
-    return np.stack(masks_out)
+    inputs = proc(images=rgb, input_boxes=[[b.tolist() for b in boxes]],
+                  return_tensors="pt").to(device)
+    with torch.inference_mode():
+        out = model(**inputs, multimask_output=False)
+    masks = proc.post_process_masks(
+        out.pred_masks.cpu(),
+        inputs["original_sizes"].cpu(),
+        inputs["reshaped_input_sizes"].cpu(),
+    )[0]
+    return masks.squeeze(1).numpy().astype(bool)
 
 
 def draw(frame, boxes, masks, scores, classes):
@@ -107,7 +97,7 @@ def mask_stats(m):
 
 def main():
     args = parse_args()
-    must_exist = [args.video, args.sam3_weights]
+    must_exist = [args.video, args.sam2_weights]
     if args.rfdetr_weights is not None:
         must_exist.append(args.rfdetr_weights)
     for p in must_exist:
@@ -127,9 +117,9 @@ def main():
 
     print("loading models")
     detector = load_detector(args.rfdetr_weights, args.device) if args.rfdetr_weights else None
-    segmenter = load_segmenter(args.sam3_weights, args.device)
+    segmenter = load_segmenter(args.sam2_weights, args.device)
     if detector is None:
-        print("no detector — prompting SAM3 with the whole frame per sampled frame")
+        print("no detector — prompting SAM2 with the whole frame per sampled frame")
 
     frames = []
     t_det = t_seg = 0.0
@@ -190,7 +180,7 @@ def main():
         "video": {"path": str(args.video), "fps": float(fps), "width": w, "height": h},
         "models": {
             "detector": str(args.rfdetr_weights) if args.rfdetr_weights else None,
-            "segmenter": str(args.sam3_weights),
+            "segmenter": str(args.sam2_weights),
         },
         "params": {"conf": args.conf, "stride": args.stride,
                    "max_frames": args.max_frames, "device": args.device},
