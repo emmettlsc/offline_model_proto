@@ -1,0 +1,7 @@
+torch>=2.2
+torchvision
+transformers>=4.45
+safetensors
+opencv-python
+numpy
+pillow
