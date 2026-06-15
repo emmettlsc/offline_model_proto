@@ -72,20 +72,24 @@ is the wrong CUDA tag — rebuild the wheelhouse against `cu128` or newer.
 
 ## 6. Place model weights and run
 
-Put weights under `models/` (see `docs/MODEL_WEIGHTS.md`). Then:
+Put weights under `models/` (see `docs/MODEL_WEIGHTS.md`). Each model has its
+own per-script directory with an isolated `requirements.txt`:
 
-    python scripts/run_pytorch_pipeline.py \
+    pip install -r scripts/rfdetr-pytorch/requirements.txt
+    python scripts/rfdetr-pytorch/run.py \
         --video data/clip.mp4 \
-        --rfdetr-weights models/rfdetr/ \
-        --sam2-weights models/sam2/
+        --weights models/rfdetr/
 
-or the ONNX equivalent:
-
-    python scripts/run_onnx_pipeline.py \
+    pip install -r scripts/sam2-pytorch/requirements.txt
+    python scripts/sam2-pytorch/run.py \
         --video data/clip.mp4 \
-        --rfdetr-onnx models/rfdetr.onnx \
-        --sam2-encoder-onnx models/sam2_encoder.onnx \
-        --sam2-decoder-onnx models/sam2_decoder.onnx
+        --weights models/sam2/
+
+    pip install -r scripts/sam3-pytorch/requirements.txt
+    python scripts/sam3-pytorch/run.py \
+        --video data/clip.mp4 \
+        --weights models/sam3/ \
+        --text "person"
 
 ## Common failure modes
 

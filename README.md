@@ -51,9 +51,9 @@ Prototype repo for running object detection + segmentation models
         smoke_test_cv.py
         inspect_environment.py
         run_video_frames.py
-        run_pytorch_pipeline.py
-        run_onnx_pipeline.py
-        compare_runs.py
+        rfdetr-pytorch/run.py + requirements.txt
+        sam2-pytorch/run.py + requirements.txt
+        sam3-pytorch/run.py + requirements.txt
         build_offline_bundle.sh
       docs/
         AIRGAP_INSTALL.md

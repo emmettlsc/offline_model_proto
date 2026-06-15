@@ -13,23 +13,26 @@ All model checkpoints belong under `models/` at the repo root:
 
 ## Usage
 
-Scripts take weight paths as explicit arguments. Example:
+Each model has its own self-contained directory under `scripts/` with a
+`run.py` and a `requirements.txt`. All take `--video` and `--weights` (a
+directory path for HF transformers weights):
 
-    python scripts/run_pytorch_pipeline.py \
+    python scripts/rfdetr-pytorch/run.py \
         --video data/clip.mp4 \
-        --rfdetr-weights models/rfdetr/ \
-        --sam2-weights models/sam2/
+        --weights models/rfdetr/
 
-    python scripts/run_onnx_pipeline.py \
+    python scripts/sam2-pytorch/run.py \
         --video data/clip.mp4 \
-        --rfdetr-onnx models/rfdetr.onnx \
-        --sam2-encoder-onnx models/sam2_encoder.onnx \
-        --sam2-decoder-onnx models/sam2_decoder.onnx
+        --weights models/sam2/
 
-The PyTorch RF-DETR weights from HF are a directory containing
-`config.json`, `model.safetensors`, and `preprocessor_config.json`. Pass the
-directory path, not a single file — `AutoImageProcessor.from_pretrained`
-and `AutoModelForObjectDetection.from_pretrained` both read from the dir.
+    python scripts/sam3-pytorch/run.py \
+        --video data/clip.mp4 \
+        --weights models/sam3/ \
+        --text "person"
+
+Weights from HF are a directory containing `config.json`, `model.safetensors`,
+and `preprocessor_config.json` (SAM3 additionally has tokenizer files for
+its CLIP text encoder). Pass the directory path, not a single file.
 
 ## Air-gapped constraints
 

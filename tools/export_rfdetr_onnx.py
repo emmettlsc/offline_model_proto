@@ -23,8 +23,9 @@ def parse_args():
 
 
 class PostprocessWrapper(torch.nn.Module):
-    """Decode HF DETR-style outputs to (boxes_xyxy, scores, labels) at input scale,
-    so the consumer in scripts/run_onnx_pipeline.py can use them directly."""
+    """Decode HF DETR-style outputs to (boxes_xyxy, scores, labels) at input scale.
+    Output order matches the standard ONNX-Runtime SAM-family convention used by
+    common inference scaffolds (boxes -> scores -> labels)."""
 
     def __init__(self, model, size):
         super().__init__()
