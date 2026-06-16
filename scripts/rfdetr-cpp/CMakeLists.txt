@@ -37,11 +37,16 @@ endif()
 
 option(USE_CUDA "Link CUDA Execution Provider (target must have ORT-GPU + CUDA 12.x)" OFF)
 
-add_executable(rfdetr_cpp main.cpp)
-target_include_directories(rfdetr_cpp PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-target_link_libraries(rfdetr_cpp PRIVATE ${OpenCV_LIBS} ${ONNXRUNTIME_LIB})
-if(USE_CUDA)
-    # The --cuda runtime flag still needs CUDA provider present in libonnxruntime.
-    # No extra link target needed beyond the GPU build of libonnxruntime itself.
-    target_compile_definitions(rfdetr_cpp PRIVATE RFDETR_USE_CUDA)
-endif()
+foreach(tgt rfdetr_cpp:main.cpp rfdetr_stream:stream.cpp)
+    string(REPLACE ":" ";" parts ${tgt})
+    list(GET parts 0 name)
+    list(GET parts 1 src)
+    add_executable(${name} ${src})
+    target_include_directories(${name} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(${name} PRIVATE ${OpenCV_LIBS} ${ONNXRUNTIME_LIB})
+    if(USE_CUDA)
+        # The --cuda runtime flag still needs CUDA provider present in libonnxruntime.
+        # No extra link target needed beyond the GPU build of libonnxruntime itself.
+        target_compile_definitions(${name} PRIVATE RFDETR_USE_CUDA)
+    endif()
+endforeach()
