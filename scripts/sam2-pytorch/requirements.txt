@@ -3,5 +3,5 @@ torchvision
 transformers>=4.45
 safetensors
 opencv-python
-numpy
+numpy<2
 pillow
