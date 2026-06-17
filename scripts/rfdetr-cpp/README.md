@@ -4,7 +4,7 @@ C++ RF-DETR ONNX inference over a video. Counterpart to `scripts/rfdetr-pytorch/
 
 ## Inputs
 
-The ONNX file produced by `tools/export_rfdetr_onnx.py`. Layout: input
+The ONNX file produced by `scripts/rfdetr-onnx-convert/convert.py`. Layout: input
 `pixel_values [1, 3, 576, 576]`, three outputs `(boxes, scores, labels)` at
 576-input scale. The `.onnx` file and its `.onnx.data` external-weights
 sibling must live in the same directory.

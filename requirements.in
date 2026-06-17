@@ -13,7 +13,8 @@ torchvision
 transformers
 
 # ONNX runtime — only needed if you deploy an ONNX-exported model on the
-# air-gapped target (e.g. the RF-DETR ONNX produced by tools/export_rfdetr_onnx.py).
+# air-gapped target (RF-DETR / SAM2 ONNX produced by the convert scripts under
+# scripts/rfdetr-onnx-convert and scripts/sam2-onnx-convert).
 # For Blackwell sm_120 you need ORT >= 1.20 built against CUDA 12.x.
 # On a CPU-only dev Mac use `onnxruntime` instead — the two packages conflict.
 onnxruntime-gpu

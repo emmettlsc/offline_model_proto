@@ -1,7 +1,0 @@
-torch>=2.2
-torchvision
-transformers>=4.40
-safetensors
-onnx>=1.15
-onnxscript
-onnxruntime>=1.16
