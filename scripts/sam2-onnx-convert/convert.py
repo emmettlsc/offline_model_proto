@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import onnx
 import torch
 from transformers import Sam2Model
 
@@ -34,6 +35,14 @@ class DecoderWrapper(torch.nn.Module):
         return out.iou_scores, out.pred_masks, out.object_score_logits
 
 
+def _pin_ir_version(path: Path) -> None:
+    """Newer torch emits IR 10 which onnxruntime < 1.17 can't load. Set IR back to 9."""
+    m = onnx.load(str(path), load_external_data=False)
+    if m.ir_version > 9:
+        m.ir_version = 9
+        onnx.save(m, str(path))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", type=Path, required=True,
@@ -60,6 +69,7 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
+    _pin_ir_version(enc_path)
     print(f"wrote {enc_path}")
 
     with torch.no_grad():
@@ -81,6 +91,7 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
+    _pin_ir_version(dec_path)
     print(f"wrote {dec_path}")
 
 

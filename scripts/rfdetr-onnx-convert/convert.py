@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import onnx
 import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
@@ -57,7 +58,13 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
-    print(f"wrote {args.output}")
+
+    # Newer torch emits IR 10 which onnxruntime < 1.17 can't load. Set IR back to 9.
+    m = onnx.load(str(args.output), load_external_data=False)
+    if m.ir_version > 9:
+        m.ir_version = 9
+        onnx.save(m, str(args.output))
+    print(f"wrote {args.output} (ir_version={m.ir_version}, opset={args.opset})")
 
 
 if __name__ == "__main__":
