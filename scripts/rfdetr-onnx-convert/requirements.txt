@@ -1,4 +1,4 @@
-torch>=2.2
+torch>=2.5
 torchvision
 transformers>=4.50
 onnx>=1.15

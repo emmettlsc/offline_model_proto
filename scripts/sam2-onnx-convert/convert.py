@@ -50,12 +50,15 @@ def main():
     dummy_pix = torch.randn(1, 3, SIZE, SIZE)
     enc_path = args.output_dir / "vision_encoder.onnx"
     print(f"exporting encoder ...")
+    # dynamo=True forces the new exporter — the legacy path has no symbolic for
+    # several ops used in SAM2's Hiera backbone / FPN projector.
     torch.onnx.export(
         enc, (dummy_pix,), str(enc_path),
         input_names=["pixel_values"],
         output_names=["image_embeddings.0", "image_embeddings.1", "image_embeddings.2"],
         opset_version=args.opset,
         do_constant_folding=True,
+        dynamo=True,
     )
     print(f"wrote {enc_path}")
 
@@ -76,6 +79,7 @@ def main():
         output_names=["iou_scores", "pred_masks", "object_score_logits"],
         opset_version=args.opset,
         do_constant_folding=True,
+        dynamo=True,
     )
     print(f"wrote {dec_path}")
 

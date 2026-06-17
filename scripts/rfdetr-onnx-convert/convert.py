@@ -47,12 +47,15 @@ def main():
     dummy = torch.randn(1, 3, args.size, args.size)
 
     print(f"exporting (size={args.size}, opset={args.opset}) ...")
+    # dynamo=True forces the new exporter — the legacy path has no symbolic for
+    # aten::_upsample_bicubic2d_aa, which RF-DETR's multi-scale projector uses.
     torch.onnx.export(
         wrapped, (dummy,), str(args.output),
         input_names=["pixel_values"],
         output_names=["boxes", "scores", "labels"],
         opset_version=args.opset,
         do_constant_folding=True,
+        dynamo=True,
     )
     print(f"wrote {args.output}")
 
