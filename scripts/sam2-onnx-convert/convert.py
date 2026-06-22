@@ -35,8 +35,7 @@ class DecoderWrapper(torch.nn.Module):
         return out.iou_scores, out.pred_masks, out.object_score_logits
 
 
-def _pin_ir_version(path: Path) -> None:
-    """Newer torch emits IR 10 which onnxruntime < 1.17 can't load. Set IR back to 9."""
+def _pin_ir(path: Path) -> None:
     m = onnx.load(str(path), load_external_data=False)
     if m.ir_version > 9:
         m.ir_version = 9
@@ -45,8 +44,7 @@ def _pin_ir_version(path: Path) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", type=Path, required=True,
-                    help="HF Sam2 weights dir (e.g. facebook/sam2.1-hiera-base-plus)")
+    ap.add_argument("--weights", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
     ap.add_argument("--opset", type=int, default=18)
     args = ap.parse_args()
@@ -58,9 +56,6 @@ def main():
     enc = EncoderWrapper(model).eval()
     dummy_pix = torch.randn(1, 3, SIZE, SIZE)
     enc_path = args.output_dir / "vision_encoder.onnx"
-    print(f"exporting encoder ...")
-    # dynamo=True forces the new exporter — the legacy path has no symbolic for
-    # several ops used in SAM2's Hiera backbone / FPN projector.
     torch.onnx.export(
         enc, (dummy_pix,), str(enc_path),
         input_names=["pixel_values"],
@@ -69,7 +64,7 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
-    _pin_ir_version(enc_path)
+    _pin_ir(enc_path)
     print(f"wrote {enc_path}")
 
     with torch.no_grad():
@@ -81,7 +76,6 @@ def main():
     box = torch.tensor([[[10.0, 10.0, 500.0, 500.0]]], dtype=torch.float32)
 
     dec_path = args.output_dir / "prompt_encoder_mask_decoder.onnx"
-    print(f"exporting decoder ...")
     torch.onnx.export(
         dec, (points, labels, box, emb0, emb1, emb2), str(dec_path),
         input_names=["input_points", "input_labels", "input_boxes",
@@ -91,7 +85,7 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
-    _pin_ir_version(dec_path)
+    _pin_ir(dec_path)
     print(f"wrote {dec_path}")
 
 

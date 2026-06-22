@@ -8,11 +8,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# OpenCV — system install on RHEL (dnf install opencv-devel) or Homebrew on Mac.
 find_package(OpenCV 4 REQUIRED)
 
-# ONNX Runtime — no FindOnnxRuntime upstream; resolve include + lib manually.
-# Hints cover Homebrew (Mac), system /usr/local, and an ONNXRUNTIME_ROOT override.
 find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
     HINTS
         /opt/homebrew/include/onnxruntime
@@ -30,12 +27,10 @@ find_library(ONNXRUNTIME_LIB onnxruntime
 )
 if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
     message(FATAL_ERROR
-        "ONNX Runtime not found. Set ONNXRUNTIME_ROOT or install via brew/dnf.\n"
+        "onnxruntime not found. set ONNXRUNTIME_ROOT.\n"
         "  include: ${ONNXRUNTIME_INCLUDE_DIR}\n"
         "  lib:     ${ONNXRUNTIME_LIB}")
 endif()
-
-option(USE_CUDA "Link CUDA Execution Provider (target must have ORT-GPU + CUDA 12.x)" OFF)
 
 foreach(tgt rfdetr_cpp:main.cpp rfdetr_stream:stream.cpp)
     string(REPLACE ":" ";" parts ${tgt})
@@ -44,9 +39,4 @@ foreach(tgt rfdetr_cpp:main.cpp rfdetr_stream:stream.cpp)
     add_executable(${name} ${src})
     target_include_directories(${name} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
     target_link_libraries(${name} PRIVATE ${OpenCV_LIBS} ${ONNXRUNTIME_LIB})
-    if(USE_CUDA)
-        # The --cuda runtime flag still needs CUDA provider present in libonnxruntime.
-        # No extra link target needed beyond the GPU build of libonnxruntime itself.
-        target_compile_definitions(${name} PRIVATE RFDETR_USE_CUDA)
-    endif()
 endforeach()

@@ -27,12 +27,10 @@ find_library(ONNXRUNTIME_LIB onnxruntime
 )
 if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
     message(FATAL_ERROR
-        "ONNX Runtime not found. Set ONNXRUNTIME_ROOT or install via brew/dnf.\n"
+        "onnxruntime not found. set ONNXRUNTIME_ROOT.\n"
         "  include: ${ONNXRUNTIME_INCLUDE_DIR}\n"
         "  lib:     ${ONNXRUNTIME_LIB}")
 endif()
-
-option(USE_CUDA "Link CUDA Execution Provider (target must have ORT-GPU + CUDA 12.x)" OFF)
 
 foreach(tgt sam2_cpp:main.cpp sam2_stream:stream.cpp)
     string(REPLACE ":" ";" parts ${tgt})
@@ -41,7 +39,4 @@ foreach(tgt sam2_cpp:main.cpp sam2_stream:stream.cpp)
     add_executable(${name} ${src})
     target_include_directories(${name} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
     target_link_libraries(${name} PRIVATE ${OpenCV_LIBS} ${ONNXRUNTIME_LIB})
-    if(USE_CUDA)
-        target_compile_definitions(${name} PRIVATE SAM2_USE_CUDA)
-    endif()
 endforeach()

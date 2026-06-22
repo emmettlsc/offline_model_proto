@@ -1,48 +1,46 @@
-# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .Python
 
-# Virtual environments
 venv/
 .venv/
 env/
 
-# Build artifacts
 build/
 dist/
 *.egg
 
-# Wheelhouse and offline bundle — never commit
 wheelhouse/
 *.whl
-offline_model_proto_bundle.tar.gz
+*.tar.gz
 
-# Model weights — never commit
 models/
 *.pth
 *.pt
 *.onnx
+*.onnx_data
+*.onnx.data
+*.engine
+*.plan
 *.safetensors
 *.ckpt
 *.bin
 
-# Videos and large media — never commit
 data/
 *.mp4
 *.mov
 *.avi
 *.mkv
 
-# Outputs
 outputs/
+trt_cache/
 
-# IDE / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# Jupyter
 .ipynb_checkpoints/
+
+notes/

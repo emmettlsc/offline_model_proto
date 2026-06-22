@@ -1,6 +1,3 @@
-// SAM2 ONNX inference over a network stream (or any URL OpenCV can decode).
-// Network-capable counterpart to main.cpp; same shape as scripts/rfdetr-cpp/stream.cpp.
-
 #include <onnxruntime_cxx_api.h>
 #include <opencv2/opencv.hpp>
 
@@ -27,12 +24,15 @@ struct Args {
     std::string decoder;
     std::string save;
     std::string stream_out;
+    std::string trt_cache = "./trt_cache";
     float bx1 = -1, by1 = -1, bx2 = -1, by2 = -1;
     bool no_print_json = false;
     bool display = false;
     int stride = 1;
     int max_frames = 0;
     bool cuda = false;
+    bool trt = false;
+    bool fp16 = true;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -57,14 +57,15 @@ Args parse_args(int argc, char** argv) {
         else if (arg == "--stride")     a.stride = std::stoi(next(arg));
         else if (arg == "--max-frames") a.max_frames = std::stoi(next(arg));
         else if (arg == "--cuda")       a.cuda = true;
+        else if (arg == "--trt")        a.trt = true;
+        else if (arg == "--no-fp16")    a.fp16 = false;
+        else if (arg == "--trt-cache")  a.trt_cache = next(arg);
         else if (arg == "-h" || arg == "--help") {
             std::cout << "usage: " << argv[0]
                       << " --input URL_OR_PATH --encoder PATH --decoder PATH\n"
-                      << "  [--save out.mp4]          record annotated frames\n"
-                      << "  [--stream-out URL]        re-broadcast annotated frames\n"
-                      << "  [--box X1 Y1 X2 Y2]       default = whole frame\n"
-                      << "  [--no-print-json] [--display]\n"
-                      << "  [--stride N] [--max-frames N] [--cuda]\n";
+                      << "  [--save out.mp4] [--stream-out URL] [--no-print-json] [--display]\n"
+                      << "  [--box X1 Y1 X2 Y2] [--stride N] [--max-frames N]\n"
+                      << "  [--cuda] [--trt] [--no-fp16] [--trt-cache DIR]\n";
             std::exit(0);
         }
         else { std::cerr << "unknown arg: " << arg << "\n"; std::exit(2); }
@@ -92,6 +93,21 @@ void preprocess(const cv::Mat& frame, std::vector<float>& out) {
     }
 }
 
+void append_trt_ep(Ort::SessionOptions& opts, const Args& args) {
+    OrtTensorRTProviderOptionsV2* trt = nullptr;
+    Ort::ThrowOnError(Ort::GetApi().CreateTensorRTProviderOptions(&trt));
+    const char* fp16 = args.fp16 ? "1" : "0";
+    std::vector<const char*> keys = {
+        "trt_fp16_enable", "trt_engine_cache_enable", "trt_engine_cache_path"
+    };
+    std::vector<const char*> vals = {fp16, "1", args.trt_cache.c_str()};
+    Ort::ThrowOnError(Ort::GetApi().UpdateTensorRTProviderOptions(
+        trt, keys.data(), vals.data(), keys.size()));
+    Ort::ThrowOnError(Ort::GetApi().SessionOptionsAppendExecutionProvider_TensorRT_V2(
+        opts, trt));
+    Ort::GetApi().ReleaseTensorRTProviderOptions(trt);
+}
+
 std::atomic<bool> stop_flag{false};
 extern "C" void handle_sigint(int) { stop_flag.store(true); }
 
@@ -111,14 +127,18 @@ int main(int argc, char** argv) {
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "sam2_stream");
     Ort::SessionOptions opts;
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
-    if (args.cuda) {
+    if (args.trt) {
+        append_trt_ep(opts, args);
+    }
+    if (args.trt || args.cuda) {
         OrtCUDAProviderOptions cuda{};
         opts.AppendExecutionProvider_CUDA(cuda);
     }
     Ort::Session encoder(env, args.encoder.c_str(), opts);
     Ort::Session decoder(env, args.decoder.c_str(), opts);
+    const char* dev = args.trt ? "trt" : (args.cuda ? "cuda" : "cpu");
     std::cerr << "encoder: " << args.encoder << "  decoder: " << args.decoder
-              << "  device: " << (args.cuda ? "cuda" : "cpu") << "\n";
+              << "  ep: " << dev << "\n";
 
     cv::VideoWriter file_writer;
     if (!args.save.empty()) {

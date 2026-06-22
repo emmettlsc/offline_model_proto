@@ -6,9 +6,7 @@ import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
 
-class PostprocessWrapper(torch.nn.Module):
-    """Decode HF DETR outputs to (boxes_xyxy_at_input_scale, scores, labels)."""
-
+class Wrapper(torch.nn.Module):
     def __init__(self, model, size):
         super().__init__()
         self.model = model
@@ -28,28 +26,24 @@ class PostprocessWrapper(torch.nn.Module):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--weights", type=Path, required=True,
-                    help="HF weights dir (config.json + model.safetensors)")
-    ap.add_argument("--output", type=Path, required=True, help=".onnx path")
+    ap.add_argument("--weights", type=Path, required=True)
+    ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--size", type=int, default=576)
     ap.add_argument("--opset", type=int, default=18)
     args = ap.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    AutoImageProcessor.from_pretrained(str(args.weights))  # validate
+    AutoImageProcessor.from_pretrained(str(args.weights))
     model = AutoModelForObjectDetection.from_pretrained(
         str(args.weights),
-        disable_custom_kernels=True,    # custom CUDA kernels aren't traceable
-        attn_implementation="eager",    # SDPA path trips onnxscript on this checkpoint
+        disable_custom_kernels=True,
+        attn_implementation="eager",
     ).eval()
 
-    wrapped = PostprocessWrapper(model, args.size).eval()
+    wrapped = Wrapper(model, args.size).eval()
     dummy = torch.randn(1, 3, args.size, args.size)
 
-    print(f"exporting (size={args.size}, opset={args.opset}) ...")
-    # dynamo=True forces the new exporter — the legacy path has no symbolic for
-    # aten::_upsample_bicubic2d_aa, which RF-DETR's multi-scale projector uses.
     torch.onnx.export(
         wrapped, (dummy,), str(args.output),
         input_names=["pixel_values"],
@@ -59,12 +53,11 @@ def main():
         dynamo=True,
     )
 
-    # Newer torch emits IR 10 which onnxruntime < 1.17 can't load. Set IR back to 9.
     m = onnx.load(str(args.output), load_external_data=False)
     if m.ir_version > 9:
         m.ir_version = 9
         onnx.save(m, str(args.output))
-    print(f"wrote {args.output} (ir_version={m.ir_version}, opset={args.opset})")
+    print(f"wrote {args.output}")
 
 
 if __name__ == "__main__":
