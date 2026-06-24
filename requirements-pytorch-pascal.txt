@@ -7,5 +7,6 @@ pillow
 onnx
 onnxscript
 onnxsim
+onnxruntime
 opencv-python
 numpy<2
