@@ -3,6 +3,7 @@ from pathlib import Path
 
 import onnx
 import torch
+from onnxsim import simplify
 from transformers import Sam2Model
 
 
@@ -35,11 +36,16 @@ class DecoderWrapper(torch.nn.Module):
         return out.iou_scores, out.pred_masks, out.object_score_logits
 
 
-def _pin_ir(path: Path) -> None:
-    m = onnx.load(str(path), load_external_data=False)
+def _finalize(path: Path, shapes: dict) -> None:
+    m = onnx.load(str(path))
+    m, ok = simplify(m, overwrite_input_shapes=shapes)
+    if not ok:
+        raise SystemExit(f"simplify failed: {path}")
     if m.ir_version > 9:
         m.ir_version = 9
-        onnx.save(m, str(path))
+    data = path.name + ".data"
+    onnx.save(m, str(path), save_as_external_data=True,
+              all_tensors_to_one_file=True, location=data, size_threshold=1024)
 
 
 def main():
@@ -64,7 +70,7 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
-    _pin_ir(enc_path)
+    _finalize(enc_path, {"pixel_values": [1, 3, SIZE, SIZE]})
     print(f"wrote {enc_path}")
 
     with torch.no_grad():
@@ -85,7 +91,14 @@ def main():
         do_constant_folding=True,
         dynamo=True,
     )
-    _pin_ir(dec_path)
+    _finalize(dec_path, {
+        "input_points": [1, 1, 0, 2],
+        "input_labels": [1, 1, 0],
+        "input_boxes": [1, 1, 4],
+        "image_embeddings.0": [1, 32, 256, 256],
+        "image_embeddings.1": [1, 64, 128, 128],
+        "image_embeddings.2": [1, 256, 64, 64],
+    })
     print(f"wrote {dec_path}")
 
 
