@@ -3,6 +3,7 @@ from pathlib import Path
 
 import onnx
 import torch
+from onnxsim import simplify
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
 
@@ -53,10 +54,15 @@ def main():
         dynamo=True,
     )
 
-    m = onnx.load(str(args.output), load_external_data=False)
+    m = onnx.load(str(args.output))
+    m, ok = simplify(m, overwrite_input_shapes={"pixel_values": [1, 3, args.size, args.size]})
+    if not ok:
+        raise SystemExit("simplify failed")
     if m.ir_version > 9:
         m.ir_version = 9
-        onnx.save(m, str(args.output))
+    data = args.output.name + ".data"
+    onnx.save(m, str(args.output), save_as_external_data=True,
+              all_tensors_to_one_file=True, location=data, size_threshold=1024)
     print(f"wrote {args.output}")
 
 

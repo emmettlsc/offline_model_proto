@@ -6,5 +6,6 @@ safetensors
 pillow
 onnx
 onnxscript
+onnxsim
 opencv-python
 numpy<2
