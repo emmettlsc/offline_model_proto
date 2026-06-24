@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch>=2.7
+torchvision
+transformers>=5.0
+safetensors
+pillow
+onnx
+onnxscript
+opencv-python
+numpy<2
