@@ -28,6 +28,13 @@ COCO = [
 ]
 
 
+PROVIDERS = {
+    "cpu": ["CPUExecutionProvider"],
+    "cuda": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    "trt": ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+}
+
+
 def preprocess(frame):
     img = cv2.resize(frame, (SIZE, SIZE))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
@@ -40,12 +47,13 @@ def main():
     ap.add_argument("--video", required=True)
     ap.add_argument("--model", required=True)
     ap.add_argument("--output", default="rfdetr_out.mp4")
+    ap.add_argument("--ep", default="cpu", choices=["cpu", "cuda", "trt"])
     ap.add_argument("--conf", type=float, default=0.5)
     ap.add_argument("--stride", type=int, default=1)
     ap.add_argument("--max-frames", type=int, default=0)
     args = ap.parse_args()
 
-    sess = ort.InferenceSession(args.model, providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(args.model, providers=PROVIDERS[args.ep])
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():

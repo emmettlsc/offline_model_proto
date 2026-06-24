@@ -1,3 +1,2 @@
-onnxruntime>=1.16
 opencv-python
 numpy<2

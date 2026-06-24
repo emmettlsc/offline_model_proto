@@ -20,20 +20,28 @@ def preprocess(frame):
     return img.transpose(2, 0, 1)[None]
 
 
+PROVIDERS = {
+    "cpu": ["CPUExecutionProvider"],
+    "cuda": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    "trt": ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
     ap.add_argument("--encoder", required=True)
     ap.add_argument("--decoder", required=True)
     ap.add_argument("--output", default="sam2_out.mp4")
+    ap.add_argument("--ep", default="cpu", choices=["cpu", "cuda", "trt"])
     ap.add_argument("--box", type=float, nargs=4, default=None,
                     metavar=("X1", "Y1", "X2", "Y2"))
     ap.add_argument("--stride", type=int, default=1)
     ap.add_argument("--max-frames", type=int, default=0)
     args = ap.parse_args()
 
-    enc = ort.InferenceSession(args.encoder, providers=["CPUExecutionProvider"])
-    dec = ort.InferenceSession(args.decoder, providers=["CPUExecutionProvider"])
+    enc = ort.InferenceSession(args.encoder, providers=PROVIDERS[args.ep])
+    dec = ort.InferenceSession(args.decoder, providers=PROVIDERS[args.ep])
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
